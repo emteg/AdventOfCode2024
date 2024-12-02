@@ -11,12 +11,18 @@ import (
 )
 
 func main() {
-    file, err := os.Open(".\\1.txt")
+    //part1(".\\sample1.txt")
+    //part1(".\\1.txt")
+    part2(".\\sample1.txt")
+}
+
+func part1(filename string) {
+    file, err := os.Open(filename)
     if err != nil {
         log.Fatal(err)
     }
     defer file.Close()
-    
+
     leftList := []int{};
     rightList := []int{};
     
@@ -53,6 +59,16 @@ func main() {
     }
     
     fmt.Println(sum)
+}
+
+func part2(filename string) {
+    file, err := os.Open(filename)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer file.Close()
+    
+    fmt.Println("Part 2")
 }
 
 func abs(x int) int {
