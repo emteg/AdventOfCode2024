@@ -43,15 +43,17 @@ type partOneReader struct {
 	second           int
 	nextCharExpected rune
 	lastCharRead     string
+	dataReadSoFar    string
 }
 
 func newPartOneReader() *partOneReader {
 	return &partOneReader{state: SearchMultiplication}
 }
 
-func parseNext(reader *partOneReader, char rune) {
+func charRead(reader *partOneReader, char rune) {
 	reader.position++
 	reader.lastCharRead = string(char)
+	reader.dataReadSoFar += reader.lastCharRead
 }
 
 func enterSearchMultiplicationState(reader *partOneReader) {
@@ -143,17 +145,15 @@ func part1(filename string) (int, error) {
 				log.Fatal(err)
 			}
 		}
-		parseNext(parser, char)
+		charRead(parser, char)
 
 		switch {
 		// enter 'search multiplication' state upon encountering char 'm'
 		case parser.state == SearchMultiplication && char == 'm':
-			fmt.Println("Found character 'm' - entering 'Read multiplication' state.")
 			enterReadMultiplicationState(parser)
 
 		// continue expecting to read chars 'u', 'l', '(' in this order to enter 'reading number' state
 		case parser.state == ReadMultiplication && parser.nextCharExpected == char && char == '(':
-			fmt.Println("Found character '(' - entering 'Read first number' state.")
 			enterReadFirstNumberState(parser)
 		case parser.state == ReadMultiplication && parser.nextCharExpected == char:
 			continueReadMultiplicationState(parser)
@@ -162,26 +162,22 @@ func part1(filename string) (int, error) {
 		case parser.state == ReadFirstNumber && unicode.IsDigit(char):
 			continueReadFirstNumberState(parser, char)
 		case parser.state == ReadFirstNumber && char == parser.nextCharExpected && parser.firstNumber != "":
-			fmt.Printf("Found character ',' - entering 'Read second number' state (first number was %s).\n", parser.firstNumber)
 			enterReadSecondNumberState(parser)
 		case parser.state == ReadFirstNumber && char == parser.nextCharExpected:
-			fmt.Println("Found character ',' but the first number is empty - entering 'Search multiplication' state.")
 			enterSearchMultiplicationState(parser)
 
 		// read digits into the second number until the closing ')' is encountered
 		case parser.state == ReadSecondNumber && unicode.IsDigit(char):
 			continueReadSecondNumberState(parser, char)
 		case parser.state == ReadSecondNumber && char == parser.nextCharExpected && parser.secondNumber != "":
-			fmt.Printf("Found character ')' - finished reading multiplication (second number was %s).\n", parser.secondNumber)
 			m, err := executeMultiplication(parser)
 			if err != nil {
 				return 0, err
 			}
 			sum += m
-			fmt.Printf("Multiplication result was %d. Entering 'Search multiplication' state.\n", m)
+			fmt.Printf("Found valid multiplication: %s * %s = %d. (line: %d, position: %d)\n", parser.firstNumber, parser.secondNumber, m, parser.line, parser.position)
 			enterSearchMultiplicationState(parser)
 		case parser.state == ReadSecondNumber && char == parser.nextCharExpected:
-			fmt.Println("Found character ',' but the second number is empty - entering 'Search multiplication' state.")
 			enterSearchMultiplicationState(parser)
 
 		default:
