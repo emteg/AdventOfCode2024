@@ -26,21 +26,113 @@ func main() {
 	fmt.Println(sum)
 }
 
+const (
+	SearchMultiplication = iota
+	ReadMultiplication
+	ReadFirstNumber
+	ReadSecondNumber
+)
+
+type partOneReader struct {
+	line             int
+	position         int
+	state            int
+	firstNumber      string
+	secondNumber     string
+	first            int
+	second           int
+	nextCharExpected rune
+	lastCharRead     string
+}
+
+func newPartOneReader() *partOneReader {
+	return &partOneReader{state: SearchMultiplication}
+}
+
+func parseNext(reader *partOneReader, char rune) {
+	reader.position++
+	reader.lastCharRead = string(char)
+}
+
+func enterSearchMultiplicationState(reader *partOneReader) {
+	if reader.state == SearchMultiplication {
+		return
+	}
+	reader.state = SearchMultiplication
+	reader.firstNumber = ""
+	reader.secondNumber = ""
+	reader.nextCharExpected = 'm'
+	reader.first = 0
+	reader.second = 0
+}
+
+func enterSearchMultiplicationStateAfterNewLine(reader *partOneReader) {
+	enterSearchMultiplicationState(reader)
+	reader.line++
+	reader.position = 0
+}
+
+func enterReadMultiplicationState(reader *partOneReader) {
+	reader.state = ReadMultiplication
+	reader.nextCharExpected = 'u'
+}
+
+func continueReadMultiplicationState(reader *partOneReader) {
+	switch reader.nextCharExpected {
+	case 'u':
+		reader.nextCharExpected = 'l'
+	case 'l':
+		reader.nextCharExpected = '('
+	}
+}
+
+func enterReadFirstNumberState(reader *partOneReader) {
+	reader.state = ReadFirstNumber
+	reader.firstNumber = ""
+	reader.secondNumber = ""
+	reader.nextCharExpected = ','
+}
+
+func continueReadFirstNumberState(reader *partOneReader, char rune) {
+	reader.firstNumber += string(char)
+	n, err := strconv.ParseInt(reader.firstNumber, 0, 0)
+	if err != nil {
+		reader.first = 0
+	} else {
+		reader.first = int(n)
+	}
+}
+
+func enterReadSecondNumberState(reader *partOneReader) {
+	reader.state = ReadSecondNumber
+	reader.nextCharExpected = ')'
+}
+
+func continueReadSecondNumberState(reader *partOneReader, char rune) {
+	reader.secondNumber += string(char)
+	n, err := strconv.ParseInt(reader.secondNumber, 0, 0)
+	if err != nil {
+		reader.second = 0
+	} else {
+		reader.second = int(n)
+	}
+}
+
+func executeMultiplication(reader *partOneReader) (result int, err error) {
+	return reader.first * reader.second, nil
+}
+
 func part1(filename string) (int, error) {
 	file, err := os.Open(filename)
-	defer file.Close()
 	if err != nil {
 		return 0, err
 	}
+	defer file.Close()
 
 	fmt.Println("Reading file...")
 	reader := bufio.NewReader(file)
-	isReadingMultiplication := false
-	isReadingNumbers := false
-	isReadingFirstNumber := false
-	nextCharExpected := 'm'
-	firstNumber := ""
-	secondNumber := ""
+	parser := newPartOneReader()
+
 	sum := 0
 	for {
 		char, _, err := reader.ReadRune()
@@ -51,75 +143,53 @@ func part1(filename string) (int, error) {
 				log.Fatal(err)
 			}
 		}
+		parseNext(parser, char)
 
 		switch {
 		// enter 'search multiplication' state upon encountering char 'm'
-		case !isReadingMultiplication && char == 'm':
+		case parser.state == SearchMultiplication && char == 'm':
 			fmt.Println("Found character 'm' - entering 'Read multiplication' state.")
-			isReadingMultiplication = true
-			nextCharExpected = 'u'
+			enterReadMultiplicationState(parser)
 
 		// continue expecting to read chars 'u', 'l', '(' in this order to enter 'reading number' state
-		case isReadingMultiplication && nextCharExpected == char && char == 'u':
-			nextCharExpected = 'l'
-		case isReadingMultiplication && nextCharExpected == char && char == 'l':
-			nextCharExpected = '('
-		case isReadingMultiplication && nextCharExpected == char && char == '(':
+		case parser.state == ReadMultiplication && parser.nextCharExpected == char && char == '(':
 			fmt.Println("Found character '(' - entering 'Read first number' state.")
-			isReadingNumbers = true
-			isReadingFirstNumber = true
-			firstNumber = ""
-			secondNumber = ""
-			nextCharExpected = ','
+			enterReadFirstNumberState(parser)
+		case parser.state == ReadMultiplication && parser.nextCharExpected == char:
+			continueReadMultiplicationState(parser)
 
 		// read digits into the first number until the number separator ',' is encountered
-		case isReadingMultiplication && isReadingNumbers && isReadingFirstNumber && unicode.IsDigit(char):
-			firstNumber += string(char)
-		case isReadingMultiplication && isReadingNumbers && isReadingFirstNumber && char == ',' && firstNumber != "":
-			fmt.Printf("Found character ',' - entering 'Read second number' state (first number was %s).\n", firstNumber)
-			isReadingFirstNumber = false
-			nextCharExpected = ')'
-		case isReadingMultiplication && isReadingNumbers && isReadingFirstNumber && char == ',':
+		case parser.state == ReadFirstNumber && unicode.IsDigit(char):
+			continueReadFirstNumberState(parser, char)
+		case parser.state == ReadFirstNumber && char == parser.nextCharExpected && parser.firstNumber != "":
+			fmt.Printf("Found character ',' - entering 'Read second number' state (first number was %s).\n", parser.firstNumber)
+			enterReadSecondNumberState(parser)
+		case parser.state == ReadFirstNumber && char == parser.nextCharExpected:
 			fmt.Println("Found character ',' but the first number is empty - entering 'Search multiplication' state.")
-			isReadingMultiplication = false
-			isReadingNumbers = false
-			firstNumber = ""
-			secondNumber = ""
-			nextCharExpected = 'm'
+			enterSearchMultiplicationState(parser)
 
 		// read digits into the second number until the closing ')' is encountered
-		case isReadingMultiplication && isReadingNumbers && !isReadingFirstNumber && unicode.IsDigit(char):
-			secondNumber += string(char)
-		case isReadingMultiplication && isReadingNumbers && !isReadingFirstNumber && char == ')' && secondNumber != "":
-			fmt.Printf("Found character ')' - finished reading multiplication (second number was %s).\n", secondNumber)
-			a, _ := strconv.ParseInt(firstNumber, 0, 0)
-			b, _ := strconv.ParseInt(secondNumber, 0, 0)
-			multiplied := int(a) * int(b)
-			fmt.Printf("Multiplication result was %d. Entering 'Search multiplication' state.\n", multiplied)
-			sum += multiplied
-			isReadingMultiplication = false
-			isReadingNumbers = false
-			isReadingFirstNumber = false
-			firstNumber = ""
-			secondNumber = ""
-			nextCharExpected = 'm'
-		case isReadingMultiplication && isReadingNumbers && !isReadingFirstNumber && char == ',':
+		case parser.state == ReadSecondNumber && unicode.IsDigit(char):
+			continueReadSecondNumberState(parser, char)
+		case parser.state == ReadSecondNumber && char == parser.nextCharExpected && parser.secondNumber != "":
+			fmt.Printf("Found character ')' - finished reading multiplication (second number was %s).\n", parser.secondNumber)
+			m, err := executeMultiplication(parser)
+			if err != nil {
+				return 0, err
+			}
+			sum += m
+			fmt.Printf("Multiplication result was %d. Entering 'Search multiplication' state.\n", m)
+			enterSearchMultiplicationState(parser)
+		case parser.state == ReadSecondNumber && char == parser.nextCharExpected:
 			fmt.Println("Found character ',' but the second number is empty - entering 'Search multiplication' state.")
-			isReadingMultiplication = false
-			isReadingNumbers = false
-			isReadingFirstNumber = false
-			firstNumber = ""
-			secondNumber = ""
-			nextCharExpected = 'm'
+			enterSearchMultiplicationState(parser)
 
-		// reset state to 'search multiplication' state
 		default:
-			isReadingMultiplication = false
-			isReadingNumbers = false
-			isReadingFirstNumber = false
-			firstNumber = ""
-			secondNumber = ""
-			nextCharExpected = 'm'
+			if char == 10 || char == 13 {
+				enterSearchMultiplicationStateAfterNewLine(parser)
+			} else {
+				enterSearchMultiplicationState(parser)
+			}
 		}
 	}
 	return sum, nil
