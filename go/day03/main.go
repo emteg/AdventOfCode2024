@@ -10,28 +10,6 @@ import (
 	"unicode"
 )
 
-func main() {
-	sum, err := 0, error(nil)
-
-	sum, err = part1("sample1.txt", false)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(sum)
-	//
-	//sum, err = part1("1.txt", false)
-	//if err != nil {
-	//log.Fatal(err)
-	//}
-	//fmt.Println(sum)
-
-	//sum, err = part1("sample2.txt", true)
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//fmt.Println(sum)
-}
-
 // char types
 const (
 	Other = iota
@@ -49,7 +27,7 @@ const (
 	Comma
 )
 
-func charType(char rune) int {
+func toCharType(char rune) int {
 	switch {
 	case char == 'd':
 		return CharD
@@ -65,7 +43,7 @@ func charType(char rune) int {
 		return CharU
 	case char == 't':
 		return CharT
-	case char == '`':
+	case char == '\'':
 		return Apostrophe
 	case char == '(':
 		return OpenBraces
@@ -80,184 +58,245 @@ func charType(char rune) int {
 	}
 }
 
-func matchesExpectedChar(actual rune, expected ...rune) bool {
-	for _, e := range expected {
-		if actual == e {
+// parser states
+const (
+	SearchInstruction = iota
+	ReadMul
+	ReadFirstNumber
+	ReadSecondNumber
+	ReadDoOrDont
+	ReadDo
+	ReadDont
+)
+
+type memoryReader struct {
+	line                   int
+	position               int
+	state                  int
+	currentNumber          string
+	lastNumber             int
+	nextChars              []int
+	lastCharRead           string
+	dataReadSoFar          string
+	withConditionals       bool
+	multiplicationsEnabled bool
+}
+
+func newMemoryReaderWithoutConditionals() *memoryReader {
+	return &memoryReader{
+		state:                  SearchInstruction,
+		withConditionals:       false,
+		multiplicationsEnabled: true,
+		nextChars:              []int{CharM},
+	}
+}
+
+func newMemoryReaderWithConditionals() *memoryReader {
+	return &memoryReader{
+		state:                  SearchInstruction,
+		withConditionals:       true,
+		multiplicationsEnabled: true,
+		nextChars:              []int{CharM, CharD},
+	}
+}
+
+func readNext(reader *memoryReader, char rune) int {
+	reader.position++
+	if char == 10 || char == 13 {
+		reader.position = 0
+		reader.line++
+	}
+	reader.lastCharRead = string(char)
+	reader.dataReadSoFar += reader.lastCharRead
+	charIsExpected := matchesExpectedChar(reader, char)
+	switch {
+	case reader.state == SearchInstruction && charIsExpected && char == 'm':
+		enterReadMulState(reader)
+		return 0
+	case reader.state == SearchInstruction && charIsExpected && char == 'd':
+		enterReadDoOrDontState(reader)
+		return 0
+	case reader.state == ReadMul && charIsExpected:
+		continueReadMul(reader, char)
+		return 0
+	case (reader.state == ReadDoOrDont || reader.state == ReadDo || reader.state == ReadDont) && charIsExpected:
+		continueReadDoOrDont(reader, char)
+		return 0
+	case (reader.state == ReadFirstNumber || reader.state == ReadSecondNumber) && charIsExpected:
+		return continueReadNumber(reader, char)
+	default:
+		enterOrContinueSearchInstructionState(reader)
+		return 0
+	}
+}
+
+func enterOrContinueSearchInstructionState(reader *memoryReader) {
+	if reader.state == SearchInstruction {
+		return
+	}
+
+	reader.state = SearchInstruction
+	reader.currentNumber = ""
+	reader.lastNumber = 0
+	if reader.withConditionals && reader.multiplicationsEnabled {
+		reader.nextChars = []int{CharM, CharD}
+	} else if reader.withConditionals {
+		reader.nextChars = []int{CharD}
+	} else {
+		reader.nextChars = []int{CharM}
+	}
+}
+
+func enterReadMulState(reader *memoryReader) {
+	reader.state = ReadMul
+	expect(reader, CharU)
+}
+
+func continueReadMul(reader *memoryReader, char rune) {
+	charType := toCharType(char)
+	switch charType {
+	case CharU:
+		expect(reader, CharL)
+	case CharL:
+		expect(reader, OpenBraces)
+	case OpenBraces:
+		enterReadFirstNumberState(reader)
+	}
+}
+
+func enterReadFirstNumberState(reader *memoryReader) {
+	reader.state = ReadFirstNumber
+	reader.currentNumber = ""
+	reader.lastNumber = 0
+	reader.nextChars = []int{Digit}
+}
+
+func enterReadSecondNumberState(reader *memoryReader, number int) {
+	reader.lastNumber = number
+	reader.nextChars = []int{Digit}
+	reader.state = ReadSecondNumber
+	reader.currentNumber = ""
+}
+
+func continueReadNumber(reader *memoryReader, char rune) int {
+	currentChar := toCharType(char)
+	switch {
+	case reader.state == ReadFirstNumber && reader.currentNumber == "":
+		reader.currentNumber = string(char)
+		reader.nextChars = []int{Digit, Comma}
+		return 0
+	case reader.state == ReadSecondNumber && reader.currentNumber == "":
+		reader.currentNumber = string(char)
+		reader.nextChars = []int{Digit, CloseBraces}
+		return 0
+	case (reader.state == ReadFirstNumber || reader.state == ReadSecondNumber) && currentChar == Digit:
+		reader.currentNumber += string(char)
+		return 0
+	case reader.state == ReadFirstNumber && currentChar == Comma:
+		n, _ := strconv.ParseInt(reader.currentNumber, 0, 0)
+		enterReadSecondNumberState(reader, int(n))
+		return 0
+	case reader.state == ReadSecondNumber && currentChar == CloseBraces:
+		secondNumber, _ := strconv.ParseInt(reader.currentNumber, 0, 0)
+		multiplicationResult := reader.lastNumber * int(secondNumber)
+		enterOrContinueSearchInstructionState(reader)
+		return multiplicationResult
+	default:
+		return 0
+	}
+}
+
+func enterReadDoOrDontState(reader *memoryReader) {
+	reader.state = ReadDoOrDont
+	expect(reader, CharO)
+}
+
+func continueReadDoOrDont(reader *memoryReader, char rune) {
+	currentChar := toCharType(char)
+	switch {
+	case reader.state == ReadDoOrDont && currentChar == CharO:
+		expect(reader, OpenBraces, CharN)
+	case reader.state == ReadDoOrDont && currentChar == OpenBraces:
+		enterReadDoState(reader)
+	case reader.state == ReadDoOrDont && currentChar == CharN:
+		enterReadDontState(reader)
+	case reader.state == ReadDo:
+		reader.multiplicationsEnabled = true
+		enterOrContinueSearchInstructionState(reader)
+	case reader.state == ReadDont && currentChar == Apostrophe:
+		expect(reader, CharT)
+	case reader.state == ReadDont && currentChar == CharT:
+		expect(reader, OpenBraces)
+	case reader.state == ReadDont && currentChar == OpenBraces:
+		expect(reader, CloseBraces)
+	case reader.state == ReadDont && currentChar == CloseBraces:
+		reader.multiplicationsEnabled = false
+		enterOrContinueSearchInstructionState(reader)
+	}
+}
+
+func enterReadDoState(reader *memoryReader) {
+	reader.state = ReadDo
+	expect(reader, CloseBraces)
+}
+
+func enterReadDontState(reader *memoryReader) {
+	reader.state = ReadDont
+	expect(reader, Apostrophe)
+}
+
+func expect(reader *memoryReader, chars ...int) {
+	reader.nextChars = []int{}
+	for _, char := range chars {
+		reader.nextChars = append(reader.nextChars, char)
+	}
+}
+
+func matchesExpectedChar(reader *memoryReader, actual rune) bool {
+	for _, expected := range reader.nextChars {
+		if toCharType(actual) == expected {
 			return true
 		}
 	}
 	return false
 }
 
-// parser states
-const (
-	SearchInstruction = iota
-	ReadMultiplication
-	ReadFirstNumber
-	ReadSecondNumber
-	ReadDoOrDont
-	ReadDo
-	ReadDont
-	ReadOpenCloseBraces
-)
+func main() {
+	sum, err := 0, error(nil)
 
-type partOneReader struct {
-	line                  int
-	position              int
-	state                 int
-	firstNumber           string
-	secondNumber          string
-	first                 int
-	second                int
-	nextChars             []int
-	nextCharExpected      rune
-	lastCharRead          string
-	dataReadSoFar         string
-	withConditionals      bool
-	multiplicationEnabled bool
-}
-
-func newPartOneReader(withConditionals bool) *partOneReader {
-	var nextChars []int
-	if withConditionals {
-		nextChars = append(nextChars, CharM, CharD) // looking for 'mul', 'do' and 'don`t'
-	} else {
-		nextChars = append(nextChars, CharM) // only looking for 'mul'
-	}
-	return &partOneReader{
-		state:                 SearchInstruction,
-		withConditionals:      withConditionals,
-		multiplicationEnabled: true,
-		nextChars:             nextChars,
-	}
-}
-
-func charRead(reader *partOneReader, char rune) {
-	reader.position++
-	reader.lastCharRead = string(char)
-	reader.dataReadSoFar += reader.lastCharRead
-}
-
-func enterSearchInstructionState(reader *partOneReader) {
-	if reader.state == SearchInstruction {
-		return
-	}
-	reader.state = SearchInstruction
-	reader.firstNumber = ""
-	reader.secondNumber = ""
-	if reader.withConditionals {
-		reader.nextChars = []int{CharM, CharD} // looking for 'mul', 'do' and 'don`t'
-	} else {
-		reader.nextChars = []int{CharM} // only looking for 'mul'
-	}
-	reader.nextCharExpected = 'm'
-	reader.first = 0
-	reader.second = 0
-}
-
-func enterSearchInstructionStateAfterNewLine(reader *partOneReader) {
-	enterSearchInstructionState(reader)
-	reader.line++
-	reader.position = 0
-}
-
-func enterReadMultiplicationState(reader *partOneReader) {
-	reader.state = ReadMultiplication
-	reader.nextCharExpected = 'u'
-	reader.nextChars = []int{CharU}
-}
-
-func continueReadMultiplicationState(reader *partOneReader) {
-	switch reader.nextCharExpected {
-	case 'u':
-		reader.nextCharExpected = 'l'
-		reader.nextChars = []int{CharL}
-	case 'l':
-		reader.nextCharExpected = '('
-		reader.nextChars = []int{OpenBraces}
-	}
-}
-
-func enterReadFirstNumberState(reader *partOneReader) {
-	reader.state = ReadFirstNumber
-	reader.firstNumber = ""
-	reader.secondNumber = ""
-	reader.nextCharExpected = ','
-	reader.nextChars = []int{Digit, Comma}
-}
-
-func continueReadFirstNumberState(reader *partOneReader, char rune) {
-	reader.firstNumber += string(char)
-	n, err := strconv.ParseInt(reader.firstNumber, 0, 0)
+	sum, err = part1("sample1.txt")
 	if err != nil {
-		reader.first = 0
-	} else {
-		reader.first = int(n)
+		log.Fatal(err)
 	}
-}
-
-func enterReadSecondNumberState(reader *partOneReader) {
-	reader.state = ReadSecondNumber
-	reader.nextCharExpected = ')'
-	reader.nextChars = []int{Digit, CloseBraces}
-}
-
-func continueReadSecondNumberState(reader *partOneReader, char rune) {
-	reader.secondNumber += string(char)
-	n, err := strconv.ParseInt(reader.secondNumber, 0, 0)
+	fmt.Println(sum)
+	sum, err = part1("1.txt")
 	if err != nil {
-		reader.second = 0
-	} else {
-		reader.second = int(n)
+		log.Fatal(err)
 	}
-}
+	fmt.Println(sum)
 
-func executeMultiplication(reader *partOneReader) int {
-	return reader.first * reader.second
-}
-
-func enterReadDoOrDontState(reader *partOneReader) {
-	reader.state = ReadDoOrDont
-	reader.firstNumber = ""
-	reader.secondNumber = ""
-	reader.nextCharExpected = 'o'
-	reader.nextChars = []int{CharO}
-	reader.first = 0
-	reader.second = 0
-}
-
-func enterReadDoState(reader *partOneReader) {
-	reader.state = ReadDo
-	reader.nextCharExpected = '('
-}
-
-func enterReadDontState(reader *partOneReader) {
-	reader.state = ReadDont
-	reader.nextCharExpected = 'n'
-}
-
-func continueReadDontState(reader *partOneReader, char rune) {
-	switch reader.nextCharExpected {
-	case 'n':
-		reader.nextCharExpected = '`'
-	case '`':
-		reader.nextCharExpected = 't'
-	case 't':
-		reader.nextCharExpected = '('
-	case ')':
-		reader.nextCharExpected = ')'
+	sum, err = part2("sample2.txt")
+	if err != nil {
+		log.Fatal(err)
 	}
-}
+	fmt.Println(sum)
 
-func finishDoOrDontState(reader *partOneReader) {
-	if reader.state == ReadDo {
-		reader.multiplicationEnabled = true
-	} else if reader.state == ReadDont {
-		reader.multiplicationEnabled = false
+	sum, err = part2("1.txt")
+	if err != nil {
+		log.Fatal(err)
 	}
+	fmt.Println(sum)
 }
 
-func part1(filename string, withConditionals bool) (int, error) {
+func part1(filename string) (int, error) {
+	return execute(filename, newMemoryReaderWithoutConditionals())
+}
+
+func part2(filename string) (int, error) {
+	return execute(filename, newMemoryReaderWithConditionals())
+}
+
+func execute(filename string, reader *memoryReader) (int, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return 0, err
@@ -265,12 +304,10 @@ func part1(filename string, withConditionals bool) (int, error) {
 	defer file.Close()
 
 	fmt.Println("Reading file...")
-	reader := bufio.NewReader(file)
-	parser := newPartOneReader(withConditionals)
-
+	fileReader := bufio.NewReader(file)
 	sum := 0
 	for {
-		char, _, err := reader.ReadRune()
+		char, _, err := fileReader.ReadRune()
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -278,70 +315,8 @@ func part1(filename string, withConditionals bool) (int, error) {
 				log.Fatal(err)
 			}
 		}
-		charRead(parser, char)
 
-		switch {
-		// enter 'read multiplication' state upon encountering char 'm'
-		case parser.state == SearchInstruction && char == 'm':
-			enterReadMultiplicationState(parser)
-		// enter 'read do or dont' state upon encountering char 'm'
-		case parser.state == SearchInstruction && parser.withConditionals && char == 'd':
-			enterReadDoOrDontState(parser)
-
-		// continue expecting to read chars 'u', 'l', '(' in this order to enter 'reading number' state
-		case parser.state == ReadMultiplication && parser.nextCharExpected == char && char == '(':
-			enterReadFirstNumberState(parser)
-		case parser.state == ReadMultiplication && parser.nextCharExpected == char:
-			continueReadMultiplicationState(parser)
-
-		// expect char 'o' in 'read do or dont' state
-		case parser.state == ReadDoOrDont && parser.nextCharExpected == char && char == 'o':
-			continue
-
-		// enter 'read do' state upon encountering char '(' in 'read do or dont' state
-		case parser.state == ReadDoOrDont && parser.nextCharExpected == 'o' && char == '(':
-			enterReadDoState(parser)
-
-		// enter 'read dont' state upon encountering char 'n' in 'read do or dont' state
-		case parser.state == ReadDoOrDont && parser.nextCharExpected == 'o' && char == 'n':
-			enterReadDontState(parser)
-
-		case parser.state == ReadDo && parser.nextCharExpected == char:
-			finishDoOrDontState(parser)
-			enterSearchInstructionState(parser)
-
-		case parser.state == ReadDont && parser.nextCharExpected == char && char != ')':
-			continueReadDontState(parser, char)
-		case parser.state == ReadDont && parser.nextCharExpected == char:
-			finishDoOrDontState(parser)
-			enterSearchInstructionState(parser)
-
-		// read digits into the first number until the number separator ',' is encountered
-		case parser.state == ReadFirstNumber && unicode.IsDigit(char):
-			continueReadFirstNumberState(parser, char)
-		case parser.state == ReadFirstNumber && char == parser.nextCharExpected && parser.firstNumber != "":
-			enterReadSecondNumberState(parser)
-		case parser.state == ReadFirstNumber && char == parser.nextCharExpected:
-			enterSearchInstructionState(parser)
-
-		// read digits into the second number until the closing ')' is encountered
-		case parser.state == ReadSecondNumber && unicode.IsDigit(char):
-			continueReadSecondNumberState(parser, char)
-		case parser.state == ReadSecondNumber && char == parser.nextCharExpected && parser.secondNumber != "":
-			m := executeMultiplication(parser)
-			sum += m
-			fmt.Printf("Found valid multiplication: %s * %s = %d. (line: %d, position: %d)\n", parser.firstNumber, parser.secondNumber, m, parser.line, parser.position)
-			enterSearchInstructionState(parser)
-		case parser.state == ReadSecondNumber && char == parser.nextCharExpected:
-			enterSearchInstructionState(parser)
-
-		default:
-			if char == 10 || char == 13 {
-				enterSearchInstructionStateAfterNewLine(parser)
-			} else {
-				enterSearchInstructionState(parser)
-			}
-		}
+		sum += readNext(reader, char)
 	}
 	return sum, nil
 }
