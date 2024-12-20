@@ -194,8 +194,6 @@ class Cell
     public readonly uint Y;
     public readonly byte Height;
     public bool IsSummit => Height == 9;
-    public bool CanBeTrailStart => Height == 0;
-    public readonly List<int> SummitsReachable = [];
     public bool IsInvalid => Height == 255;
     public Cell? CellToTheNorth { get; private set; }
     public Cell? CellToTheEast { get; private set; }
