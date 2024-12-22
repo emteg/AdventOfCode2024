@@ -7,16 +7,30 @@ internal static class Program
         Console.WriteLine("Hello, World!");
         
         Part1("1.txt");
+        Part2("sample1.txt");
     }
 
     private static void Part1(string filename)
     {
-        List<List<Cell>> grid = [];
-        List<Region> regions = [];
+        List<Region> regions = ReadInput(filename);
+        Console.WriteLine(regions.Sum(it => it.Area() * it.Perimeter()));
+    }
+    
+    private static void Part2(string filename)
+    {
+        List<Region> regions = ReadInput(filename);
+        Console.WriteLine(regions.Sum(it => it.Sides()));
+    }
+
+    private static List<Region> ReadInput(string filename)
+    {
+        List<Region> result = [];
+        
         using FileStream fileStream = File.OpenRead(filename);
         using StreamReader streamReader = new(fileStream, Encoding.UTF8, true);
 
-        int x = 0;
+        List<List<Cell>> grid = [];
+        int x;
         int y = 0;
         while (streamReader.ReadLine() is { } line)
         {
@@ -47,23 +61,21 @@ internal static class Program
 
                 Region region = new(cell);
                 region.Expand();
-                regions.Add(region);
+                result.Add(region);
             }
         }
         
-        Console.WriteLine(regions.Sum(it => it.Price()));
+        return result;
     }
 }
 
 public class Region
 {
     public readonly HashSet<Cell> Cells = [];
-    public readonly char PlantType;
 
     public Region(Cell cell)
     {
         Cells.Add(cell);
-        PlantType = cell.PlantType;
         cell.Region = this;
     }
 
@@ -78,8 +90,26 @@ public class Region
     {
         return (uint)Cells.Sum(it => it.Perimeter());
     }
-    
-    public uint Price() => Area() * Perimeter();
+
+    public uint Sides()
+    {
+        uint minX = uint.MaxValue;
+        uint maxX = uint.MinValue;
+        uint minY = uint.MaxValue;
+        uint maxY = uint.MinValue;
+        foreach (Cell cell in Cells)
+        {
+            if (cell.X < minX)
+                minX = cell.X;
+            if (cell.X > maxX)
+                maxX = cell.X;
+            if (cell.Y < minY)
+                minY = cell.Y;
+            if (cell.Y > maxY)
+                maxY = cell.Y;
+        }
+        return 0;
+    }
 }
 
 public class Cell
@@ -89,9 +119,13 @@ public class Cell
     public readonly char PlantType;
     
     public Cell? CellToTheNorth { get; private set; }
+    public bool HasCellToTheNorth => CellToTheNorth is not null;
     public Cell? CellToTheSouth { get; private set; }
+    public bool HasCellToTheSouth => CellToTheSouth is not null;
     public Cell? CellToTheEast { get; private set; }
+    public bool HasCellToTheEast => CellToTheEast is not null;
     public Cell? CellToTheWest { get; private set; }
+    public bool HasCellToTheWest => CellToTheWest is not null;
     public Region? Region { get; set; }
 
     public Cell(uint x, uint y, char plantType)
