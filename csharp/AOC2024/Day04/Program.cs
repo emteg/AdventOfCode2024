@@ -7,6 +7,40 @@ public static class Program
     public static void Main()
     {
         Console.WriteLine($"Found {Part1("1.txt")} occurrences of 'XMAS' or 'SAMX'");
+        Console.WriteLine($"Found {Part2("1.txt")} occurrences of MAS X");
+    }
+
+    private static uint Part2(string filename)
+    {
+        using FileStream fileStream = File.OpenRead(filename);
+        using StreamReader streamReader = new(fileStream, Encoding.UTF8, true);
+        uint result = 0;
+        List<string> window = [];
+        while (streamReader.ReadLine() is { } line)
+        {
+            window.Add(line);
+            if (window.Count > 3)
+                window.RemoveAt(0);
+
+            if (window.Count == 3)
+                result += CountMasX(window);
+        }
+        return result;
+    }
+
+    private static uint CountMasX(List<string> lines)
+    {
+        uint result = 0;
+        
+        for (int x = 0; x <= lines[0].Length - 3; x++)
+        {
+            string diagonal1 = new([lines[0][x],     lines[1][x + 1], lines[2][x + 2]]);
+            string diagonal2 = new([lines[0][x + 2], lines[1][x + 1], lines[2][x]]);
+            if ((diagonal1 == "MAS" || diagonal1 == "SAM") && (diagonal2 == "MAS" || diagonal2 == "SAM"))
+                result++;
+        }
+        
+        return result;
     }
 
     private static uint Part1(string filename)
