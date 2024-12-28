@@ -34,8 +34,7 @@ public static class Program
             if (iterations % 1000 == 0)
                 Console.WriteLine(iterations);
             
-            string s = GridToString(grid);
-            if (s.Contains("#####################"))
+            if (GridContainsConsecutiveCellWithRobots(grid, 20))
             {
                 PrintGrid(grid);
                 Console.WriteLine($"Iterations: {iterations}");
@@ -44,6 +43,29 @@ public static class Program
         }
         
         return iterations;
+    }
+
+    private static bool GridContainsConsecutiveCellWithRobots(List<List<Cell>> grid, uint minLength)
+    {
+        foreach (List<Cell> row in grid)
+        {
+            uint consecutiveCells = 0;
+            foreach (Cell cell in row)
+            {
+                if (consecutiveCells >= minLength)
+                    return true;
+                if (consecutiveCells == 0 && cell.Robots.Count == 0)
+                    continue;
+                
+                if (cell.Robots.Count > 0)
+                    consecutiveCells++;
+                
+                else if (consecutiveCells > 0 && cell.Robots.Count == 0)
+                    consecutiveCells = 0;
+            }
+        }
+
+        return false;
     }
     
     private static List<List<Cell>> CreateGrid(uint width, uint height)
@@ -123,18 +145,6 @@ public static class Program
                 Console.Write(cell);
             Console.WriteLine();
         }
-    }
-
-    private static string GridToString(List<List<Cell>> grid)
-    {
-        StringBuilder builder = new();
-        foreach (List<Cell> row in grid)
-        {
-            foreach (Cell cell in row) 
-                builder.Append(cell.Robots.Count > 0 ? '#' : '.');
-            builder.AppendLine();
-        }
-        return builder.ToString();
     }
 
     private static uint SafetyFactor(List<List<Cell>> grid)
