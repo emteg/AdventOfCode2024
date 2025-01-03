@@ -8,56 +8,32 @@ public static class Program
     {
         Console.WriteLine($"Total tokens spent: {Part1("sample1.txt")}"); // 480
         Console.WriteLine($"Total tokens spent: {Part1("1.txt")}");
+        
+        Console.WriteLine($"Total tokens spent: {Part1("sample1.txt", 10000000000000)}");
+        Console.WriteLine($"Total tokens spent: {Part1("1.txt", 10000000000000)}");
     }
 
-    private static uint Part1(string filename)
+    private static long Part1(string filename, long addToPrizeLocation = 0)
     {
-        List<ClawMachine> clawMachines = ReadClawMachines(filename);
-        uint tokensSpent = 0;
+        List<ClawMachine> clawMachines = ReadClawMachines(filename, addToPrizeLocation);
+        long tokensSpent = 0;
         foreach (ClawMachine machine in clawMachines)
         {
-            uint nA = 1;
-            while (true)
-            {
-                if (nA > 100)
-                {
-                    Console.WriteLine($"Giving up on claw machine {clawMachines.IndexOf(machine)} after 100 button presses!");
-                    break;
-                }
-                
-                uint x = machine.ButtonA.X * nA;
-                uint dx = machine.Prize.X - x;
-                uint y = machine.ButtonA.Y * nA;
-                uint dy = machine.Prize.Y - y;
-                if (dx % machine.ButtonB.X == 0 && 
-                    dy % machine.ButtonB.Y == 0 &&
-                    dx / machine.ButtonB.X == dy / machine.ButtonB.Y)
-                {
-                    uint bButtonPresses = dx / machine.ButtonB.X;
-                    if (bButtonPresses > 100)
-                        Console.WriteLine("BUTTON B PRESSED MORE THAN 100 TIMES!");
-                    
-                    uint aButtonCost = 3 * nA;
-                    uint machineTokensSpent = bButtonPresses + aButtonCost;
-                    tokensSpent += machineTokensSpent;
-                    Console.WriteLine($"Claw machine {clawMachines.IndexOf(machine)} reaches prize after pressing button A {nA} times ({aButtonCost} T) and pressing button B {bButtonPresses} times ({bButtonPresses} T) for a total of {machineTokensSpent} T.");
-                    break;
-                }
-
-                nA++;
-            }
+            (long aPresses, long bPresses) = machine.GetButtonPresses();
+            if (aPresses == 0 && bPresses == 0)
+                continue;
+            
+            tokensSpent += 3 * aPresses + bPresses;
         }
-
         return tokensSpent;
     }
 
-    private static List<ClawMachine> ReadClawMachines(string filename)
+    private static List<ClawMachine> ReadClawMachines(string filename, long addToPrizeLocation)
     {
         List<ClawMachine> clawMachines = [];
-        (uint x, uint y) a = (0, 0);
-        (uint x, uint y) b = (0, 0);
+        (long x, long y) a = (0, 0);
+        (long x, long y) b = (0, 0);
         int counter = 0;
-        int clawMachineCounter = 0;
         foreach (string line in FileReader.ReadLines(filename))
         {
             if (line.Length == 0)
@@ -66,27 +42,21 @@ public static class Program
             string[] values = line.Split(": ")[1].Split(", ");
             if (counter == 0)
             {
-                a = (uint.Parse(values[0][2..]), uint.Parse(values[1][2..]));
+                a = (long.Parse(values[0][2..]), long.Parse(values[1][2..]));
                 counter++;
                 continue;
             }
 
             if (counter == 1)
             {
-                b = (uint.Parse(values[0][2..]), uint.Parse(values[1][2..]));
+                b = (long.Parse(values[0][2..]), long.Parse(values[1][2..]));
                 counter++;
                 continue;
             }
             
             counter = 0;
-            (uint x, uint y) prize = (uint.Parse(values[0][2..]), uint.Parse(values[1][2..]));
-            ClawMachine clawMachine = new(a, b, prize);
-            clawMachineCounter++;
-
-            if (clawMachine.PrizePotentiallyReachableThroughButtonCombination())
-                clawMachines.Add(clawMachine);
-            else
-                Console.WriteLine($"Prize of claw machine {clawMachineCounter} is not reachable.");
+            (long x, long y) prize = (long.Parse(values[0][2..]) + addToPrizeLocation, long.Parse(values[1][2..]) + addToPrizeLocation);
+            clawMachines.Add(new ClawMachine(a, b, prize));
         }
 
         return clawMachines;
@@ -95,22 +65,61 @@ public static class Program
 
 public sealed class ClawMachine
 {
-    public readonly (uint X, uint Y) Prize;
-    public readonly (uint X, uint Y) ButtonA;
-    public readonly (uint X, uint Y) ButtonB;
+    public readonly (long X, long Y) Prize;
+    public readonly (long X, long Y) ButtonA;
+    public readonly (long X, long Y) ButtonB;
 
-    public ClawMachine((uint x, uint y) a, (uint x, uint y) b, (uint x, uint y) prize)
+    public ClawMachine((long x, long y) a, (long x, long y) b, (long x, long y) prize)
     {
         Prize = prize;
         ButtonA = a;
         ButtonB = b;
     }
 
-    public bool PrizePotentiallyReachableThroughButtonCombination()
+    public (long aPresses, long bPresses) GetButtonPresses()
     {
-        double yA = (ButtonA.Y / (double)ButtonA.X) * Prize.X;
-        double yB = (ButtonB.Y / (double)ButtonB.X) * Prize.X;
+        // a: number of times a button is pressed; b: number of times b button is pressed
+        //
+        // 1) a * ButtonA.X + b * ButtonB.X = Prize.X
+        // 2) a * ButtonA.Y + b * ButtonB.Y = Prize.Y
+        // 
+        // Multiply 1) by ButtonB.Y and 2) by ButtonB.X to allow elimination of B
+        //
+        // 3) a * ButtonA.X * ButtonB.Y + b * ButtonB.X * ButtonB.Y = ButtonB.Y * Prize.X
+        // 4) a * ButtonA.Y * ButtonB.X + b * ButtonB.Y * ButtonB.X = ButtonB.X * Prize.Y
+        //
+        // Subtract 4) from 3) to get 5) (and eliminate b)
+        //
+        // 3) - 4) = 5) a * (ButtonA.X * ButtonB.Y - ButtonA.Y * ButtonB.X) = ButtonB.Y * Prize.X - ButtonB.X * Prize.Y
+        //
+        // Solve 5) for a
+        //        ButtonB.Y * Prize.X - ButtonB.X * Prize.Y
+        // a = -----------------------------------------------
+        //     (ButtonA.X * ButtonB.Y - ButtonA.Y * ButtonB.X)
         
-        return yA <= Prize.Y && yB >= Prize.Y || yA >= Prize.Y && yB <= Prize.Y;
+        long aNumerator = ButtonB.Y * Prize.X - ButtonB.X * Prize.Y;
+        long aDenominator = ButtonA.X * ButtonB.Y - ButtonA.Y * ButtonB.X;
+
+        if (aNumerator % aDenominator != 0)
+            return (0, 0);
+        
+        long a = aNumerator / aDenominator;
+        
+        // Insert a into 2) to solve for b
+        //
+        // 2) a * ButtonA.Y + b * ButtonB.Y = Prize.Y
+        //    b * ButtonB.Y = Prize.Y - a * ButtonA.Y
+        //         Prize.Y - a * ButtonA.Y
+        //    b = -------------------------
+        //               ButtonB.Y
+
+        long bNumerator = Prize.Y - a * ButtonA.Y;
+
+        if (bNumerator % ButtonB.Y != 0)
+            return (0, 0);
+        
+        long b = bNumerator / ButtonB.Y;
+        
+        return (a, b);
     }
 }
